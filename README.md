@@ -14,8 +14,11 @@ Config format (JSON):
   "services": [
     {
       "name": "demo",
-      "command": ["/bin/sh", "-c", "sleep 5"]
+      "command": ["/bin/sh", "-c", "sleep 5"],
+      "restart": "on-failure"
     }
   ]
 }
 ```
+
+`restart` supports: `always`, `on-failure`, `never`.

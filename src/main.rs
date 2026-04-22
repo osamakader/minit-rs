@@ -14,10 +14,24 @@ struct Config {
     services: Vec<ServiceConfig>,
 }
 
+#[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+enum RestartPolicy {
+    Always,
+    OnFailure,
+    Never,
+}
+
+fn default_restart_policy() -> RestartPolicy {
+    RestartPolicy::OnFailure
+}
+
 #[derive(Debug, Deserialize, Clone)]
 struct ServiceConfig {
     name: String,
     command: Vec<String>,
+    #[serde(default = "default_restart_policy")]
+    restart: RestartPolicy,
 }
 
 fn load_config(path: &Path) -> Result<Config, Box<dyn std::error::Error>> {
@@ -41,6 +55,18 @@ fn spawn_service(service: &ServiceConfig) -> Result<Pid, Box<dyn std::error::Err
     Ok(pid)
 }
 
+fn should_restart(status: WaitStatus, policy: RestartPolicy) -> bool {
+    match policy {
+        RestartPolicy::Always => true,
+        RestartPolicy::Never => false,
+        RestartPolicy::OnFailure => match status {
+            WaitStatus::Exited(_, code) => code != 0,
+            WaitStatus::Signaled(_, _, _) => true,
+            _ => false,
+        },
+    }
+}
+
 fn reap_children() -> Result<Option<(Pid, WaitStatus)>, nix::Error> {
     match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG)) {
         Ok(WaitStatus::StillAlive) => Ok(None),
@@ -62,22 +88,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config(Path::new(&config_path))?;
     println!("loaded {} services from {}", config.services.len(), config_path);
 
-    let mut running = HashMap::<Pid, String>::new();
-    for service in &config.services {
+    let mut running = HashMap::<Pid, usize>::new();
+    for (idx, service) in config.services.iter().enumerate() {
         let pid = spawn_service(service)?;
-        running.insert(pid, service.name.clone());
+        running.insert(pid, idx);
     }
 
     while !running.is_empty() {
         match reap_children()? {
             Some((pid, status)) => {
-                let service_name = running
+                let service_idx = running
                     .remove(&pid)
-                    .unwrap_or_else(|| "<unknown>".to_string());
+                    .ok_or_else(|| format!("unknown pid {} reaped", pid))?;
+                let service = &config.services[service_idx];
                 println!(
                     "reaped service '{}' pid {} with status {:?}",
-                    service_name, pid, status
+                    service.name, pid, status
                 );
+
+                if should_restart(status, service.restart) {
+                    println!("restarting service '{}'", service.name);
+                    let new_pid = spawn_service(service)?;
+                    running.insert(new_pid, service_idx);
+                }
             }
             None => {
                 thread::sleep(Duration::from_millis(200));
