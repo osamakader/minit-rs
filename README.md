@@ -22,3 +22,5 @@ Config format (JSON):
 ```
 
 `restart` supports: `always`, `on-failure`, `never`.
+
+Send `SIGTERM` or `SIGINT` to `minit-rs` for graceful shutdown; it stops restarting services, forwards `SIGTERM`, and reaps remaining children.

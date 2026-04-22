@@ -1,11 +1,16 @@
 use nix::errno::Errno;
+use nix::sys::signal::{Signal, kill};
 use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::Pid;
 use serde::Deserialize;
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
+use signal_hook::flag;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -82,6 +87,10 @@ fn reap_children() -> Result<Option<(Pid, WaitStatus)>, nix::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let shutdown_requested = Arc::new(AtomicBool::new(false));
+    flag::register(SIGTERM, Arc::clone(&shutdown_requested))?;
+    flag::register(SIGINT, Arc::clone(&shutdown_requested))?;
+
     let config_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "/etc/minit.json".to_string());
@@ -94,19 +103,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         running.insert(pid, idx);
     }
 
+    let mut shutdown_signal_sent = false;
     while !running.is_empty() {
+        if shutdown_requested.load(Ordering::Relaxed) && !shutdown_signal_sent {
+            println!("shutdown signal received, stopping services");
+            for pid in running.keys() {
+                if let Err(err) = kill(*pid, Signal::SIGTERM) {
+                    eprintln!("failed to SIGTERM pid {}: {}", pid, err);
+                }
+            }
+            shutdown_signal_sent = true;
+        }
+
         match reap_children()? {
             Some((pid, status)) => {
-                let service_idx = running
-                    .remove(&pid)
-                    .ok_or_else(|| format!("unknown pid {} reaped", pid))?;
+                let Some(service_idx) = running.remove(&pid) else {
+                    println!("reaped unmanaged pid {} with status {:?}", pid, status);
+                    continue;
+                };
                 let service = &config.services[service_idx];
                 println!(
                     "reaped service '{}' pid {} with status {:?}",
                     service.name, pid, status
                 );
 
-                if should_restart(status, service.restart) {
+                if !shutdown_requested.load(Ordering::Relaxed)
+                    && should_restart(status, service.restart)
+                {
                     println!("restarting service '{}'", service.name);
                     let new_pid = spawn_service(service)?;
                     running.insert(new_pid, service_idx);
