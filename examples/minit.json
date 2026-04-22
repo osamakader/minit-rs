@@ -1,0 +1,8 @@
+{
+  "services": [
+    {
+      "name": "demo",
+      "command": ["/bin/sh", "-c", "echo demo service up; sleep 2; echo demo service down"]
+    }
+  ]
+}

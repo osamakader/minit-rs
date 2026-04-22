@@ -1,25 +1,44 @@
 use nix::errno::Errno;
 use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::Pid;
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-struct Service {
-    name: &'static str,
-    command: &'static [&'static str],
+#[derive(Debug, Deserialize)]
+struct Config {
+    services: Vec<ServiceConfig>,
 }
 
-fn spawn_service(service: &Service) -> std::io::Result<u32> {
-    let mut child = Command::new(service.command[0]);
+#[derive(Debug, Deserialize, Clone)]
+struct ServiceConfig {
+    name: String,
+    command: Vec<String>,
+}
+
+fn load_config(path: &Path) -> Result<Config, Box<dyn std::error::Error>> {
+    let contents = fs::read_to_string(path)?;
+    let config: Config = serde_json::from_str(&contents)?;
+    if config.services.is_empty() {
+        return Err("config has no services".into());
+    }
+    Ok(config)
+}
+
+fn spawn_service(service: &ServiceConfig) -> Result<Pid, Box<dyn std::error::Error>> {
+    if service.command.is_empty() {
+        return Err(format!("service '{}' has empty command", service.name).into());
+    }
+    let mut child = Command::new(&service.command[0]);
     child.args(&service.command[1..]);
     let child = child.spawn()?;
-    println!(
-        "spawned service '{}' with pid {}",
-        service.name,
-        child.id()
-    );
-    Ok(child.id())
+    let pid = Pid::from_raw(child.id() as i32);
+    println!("spawned service '{}' with pid {}", service.name, pid);
+    Ok(pid)
 }
 
 fn reap_children() -> Result<Option<(Pid, WaitStatus)>, nix::Error> {
@@ -37,20 +56,28 @@ fn reap_children() -> Result<Option<(Pid, WaitStatus)>, nix::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let service = Service {
-        name: "example",
-        command: &["/bin/sh", "-c", "echo service started; sleep 3; echo service done"],
-    };
-    let target_pid = Pid::from_raw(spawn_service(&service)? as i32);
+    let config_path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/etc/minit.json".to_string());
+    let config = load_config(Path::new(&config_path))?;
+    println!("loaded {} services from {}", config.services.len(), config_path);
 
-    loop {
+    let mut running = HashMap::<Pid, String>::new();
+    for service in &config.services {
+        let pid = spawn_service(service)?;
+        running.insert(pid, service.name.clone());
+    }
+
+    while !running.is_empty() {
         match reap_children()? {
             Some((pid, status)) => {
-                println!("reaped pid {} with status {:?}", pid, status);
-                if pid == target_pid {
-                    println!("hardcoded service exited, stopping init loop");
-                    break;
-                }
+                let service_name = running
+                    .remove(&pid)
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                println!(
+                    "reaped service '{}' pid {} with status {:?}",
+                    service_name, pid, status
+                );
             }
             None => {
                 thread::sleep(Duration::from_millis(200));
@@ -58,5 +85,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    println!("all services exited");
     Ok(())
 }
