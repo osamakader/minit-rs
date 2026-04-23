@@ -1,6 +1,7 @@
 use nix::unistd::Pid;
 use serde::Deserialize;
 use std::process::Command;
+use crate::log::debug_logs_enabled;
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
@@ -35,6 +36,8 @@ pub fn spawn_service(service: &ServiceConfig) -> Result<Pid, Box<dyn std::error:
     child.args(&service.command[1..]);
     let child = child.spawn()?;
     let pid = Pid::from_raw(child.id() as i32);
-    println!("spawned service '{}' with pid {}", service.name, pid);
+    if debug_logs_enabled() {
+        println!("spawned service '{}' with pid {}", service.name, pid);
+    }
     Ok(pid)
 }

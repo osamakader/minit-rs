@@ -10,6 +10,7 @@ use crate::deps::resolve_start_order;
 use crate::service::spawn_service;
 use crate::signals::{register_shutdown_flag, terminate_running_services};
 use crate::supervisor::{reap_children, should_restart};
+use crate::log::debug_logs_enabled;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown_requested = register_shutdown_flag()?;
@@ -18,7 +19,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "/etc/minit.json".to_string());
     let config = load_config(Path::new(&config_path))?;
-    println!("loaded {} services from {}", config.services.len(), config_path);
+    if debug_logs_enabled() {
+        println!("loaded {} services from {}", config.services.len(), config_path);
+    }
 
     let mut running = HashMap::<Pid, usize>::new();
     let start_order = resolve_start_order(&config.services)?;
@@ -42,10 +45,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 };
                 let service = &config.services[service_idx];
-                println!(
-                    "reaped service '{}' pid {} with status {:?}",
-                    service.name, pid, status
-                );
+                if debug_logs_enabled() {
+                    println!(
+                        "reaped service '{}' pid {} with status {:?}",
+                        service.name, pid, status
+                    );
+                }
 
                 if !shutdown_requested.load(Ordering::Relaxed)
                     && should_restart(status, service.restart)
@@ -61,6 +66,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("all services exited");
+    if debug_logs_enabled() {
+        println!("all services exited");
+    }
+
     Ok(())
 }
