@@ -6,6 +6,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::config::load_config;
+use crate::deps::resolve_start_order;
 use crate::service::spawn_service;
 use crate::signals::{register_shutdown_flag, terminate_running_services};
 use crate::supervisor::{reap_children, should_restart};
@@ -20,7 +21,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("loaded {} services from {}", config.services.len(), config_path);
 
     let mut running = HashMap::<Pid, usize>::new();
-    for (idx, service) in config.services.iter().enumerate() {
+    let start_order = resolve_start_order(&config.services)?;
+    for idx in start_order {
+        let service = &config.services[idx];
         let pid = spawn_service(service)?;
         running.insert(pid, idx);
     }

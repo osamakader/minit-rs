@@ -4,14 +4,13 @@
       "name": "demo",
       "command": ["/bin/sh", "-c", "echo demo service up; sleep 2; echo demo service down"],
       "restart": "on-failure",
-      "depends": [],
+      "depends": ["demo2"],
       "provides": ["demo"]
     },
     {
       "name": "demo2",
       "command": ["/bin/sh", "-c", "echo demo2 service up; sleep 2; echo demo2 service down"],
       "restart": "on-failure",
-      "depends": ["demo"],
       "provides": ["demo2"]
     }
   ]

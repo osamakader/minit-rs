@@ -18,7 +18,9 @@ fn default_restart_policy() -> RestartPolicy {
 pub struct ServiceConfig {
     pub name: String,
     pub command: Vec<String>,
+    #[serde(default)]
     pub depends: Vec<String>,
+    #[serde(default)]
     pub provides: Vec<String>,
     #[serde(default = "default_restart_policy")]
     pub restart: RestartPolicy,
