@@ -4,6 +4,9 @@
       "name": "demo",
       "command": ["/bin/sh", "-c", "echo demo service up; sleep 2; echo demo service down"],
       "restart": "on-failure",
+      "respawn_delay_secs": 1,
+      "respawn_max": 5,
+      "respawn_window_secs": 30,
       "depends": ["demo2"],
       "provides": ["demo"]
     },
@@ -11,6 +14,9 @@
       "name": "demo2",
       "command": ["/bin/sh", "-c", "echo demo2 service up; sleep 2; echo demo2 service down"],
       "restart": "on-failure",
+      "respawn_delay_secs": 1,
+      "respawn_max": 5,
+      "respawn_window_secs": 30,
       "provides": ["demo2"]
     }
   ]
